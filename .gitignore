@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+.vscode/
+.vs/
+desktop.ini
+NUL
+cd
+python
