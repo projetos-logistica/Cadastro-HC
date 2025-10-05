@@ -49,6 +49,48 @@ def normaliza_turno(t: str) -> str:
         t = "INTERMEDIARIO"
     return t if t in ["1°", "2°", "3°", "ÚNICO", "INTERMEDIARIO"] else "1°"
 
+# --- LOGIN por e-mail/senha ---------------------------------------------------
+# Para testar, já vem com o e-mail/senha que você passou.
+# (Opcional) Você pode mover as credenciais para .streamlit/secrets.toml:
+# [users]
+# projetos.logistica@somagrupo.com.br = "projetos123"
+
+DEFAULT_USERS = {
+    "projetos.logistica@somagrupo.com.br": "projetos123",
+}
+
+def _valid_users():
+    # Junta usuários padrão + (opcional) os definidos em st.secrets['users']
+    users = {k.lower(): v for k, v in DEFAULT_USERS.items()}
+    try:
+        secret_users = st.secrets.get("users", {})
+        if isinstance(secret_users, dict):
+            users.update({k.lower(): v for k, v in secret_users.items()})
+    except Exception:
+        pass
+    return users
+
+def show_login():
+    st.markdown("<h2 style='text-align:center;'>Login</h2>", unsafe_allow_html=True)
+    with st.form("login_email_senha"):
+        email = st.text_input("E-mail").strip().lower()
+        senha = st.text_input("Senha", type="password")
+        ok = st.form_submit_button("Entrar")
+
+    if ok:
+        users = _valid_users()
+        if email in users and senha == users[email]:
+            st.session_state["auth"] = True
+            st.session_state["user_email"] = email
+            st.success("Acesso liberado!")
+            st.rerun()
+        else:
+            st.error("E-mail ou senha inválidos.")
+
+    # Interrompe a execução do app até autenticar
+    st.stop()
+# -------------------------------------------------------------------------------
+
 # ------------------------------
 # Banco (SQLite) - Tabelas normalizadas
 # ------------------------------
@@ -63,7 +105,7 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # Líder que entra pela tela inicial
+    # Líder que entra pela tela inicial (mantido para histórico)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS leaders (
@@ -210,7 +252,6 @@ def listar_colaboradores(setor: str, turno: str, somente_ativos=True) -> pd.Data
     return df
 
 # Nova: lista somente por setor (ignora turno)
-
 def listar_colaboradores_por_setor(setor: str, somente_ativos=True) -> pd.DataFrame:
     conn = get_conn()
     query = "SELECT id, nome, setor, turno, ativo FROM colaboradores WHERE setor=?"
@@ -403,33 +444,6 @@ def coluna_config_datas(inicio: date, fim: date) -> Dict[str, st.column_config.C
 # Páginas
 # ------------------------------
 
-def pagina_login():
-    st.markdown("## Registro do Líder")
-    with st.form("login_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            setor = st.selectbox("Setor", OPCOES_SETORES, index=0, key="login_setor")
-            turno = st.selectbox("Turno", OPCOES_TURNOS, index=0, key="login_turno")
-        with col2:
-            nome = st.text_input("Seu nome (líder)", key="login_nome")
-            st.caption("Esta identificação ficará gravada junto ao preenchimento.")
-
-        submitted = st.form_submit_button("Entrar")
-
-    if submitted:
-        if not nome.strip():
-            st.error("Informe seu nome.")
-            return
-        leader_id = get_or_create_leader(nome, setor, turno)
-        st.session_state["leader_id"] = leader_id
-        st.session_state["leader_nome"] = nome.strip()
-        st.session_state["setor"] = setor
-        st.session_state["turno"] = turno
-        st.session_state["logado"] = True
-        st.success("Bem-vindo! Carregando sua tela de preenchimento…")
-        st.rerun()
-
-
 def pagina_colaboradores():
     st.markdown("### Colaboradores por Setor/Turno")
     colf1, colf2 = st.columns([1, 1])
@@ -477,26 +491,20 @@ def pagina_colaboradores():
         if len(df_ativos) == 0:
             st.info("Nenhum colaborador ativo para este filtro.")
         else:
-            st.dataframe(df_ativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}), use_container_width=True)
+            st.dataframe(
+                df_ativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
+                use_container_width=True
+            )
     with colB:
         st.subheader("Inativos")
-        st.dataframe(df_inativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}), use_container_width=True)
-
-    with st.expander("Ativar/Inativar colaboradores", expanded=False):
-        ids_ativos = df_ativos["id"].tolist()
-        ids_inativos = df_inativos["id"].tolist()
-        ids_para_inativar = st.multiselect("Selecionar IDs para INATIVAR", ids_ativos)
-        ids_para_ativar = st.multiselect("Selecionar IDs para ATIVAR", ids_inativos)
-        if st.button("Aplicar alterações"):
-            atualizar_ativo_colaboradores(ids_para_inativar, ids_para_ativar)
-            st.success("Alterações aplicadas.")
-            st.rerun()
+        st.dataframe(
+            df_inativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
+            use_container_width=True
+        )
 
 
-# ---- Compat: reaproveita a nova tela de lançamento
 def pagina_preenchimento():
     return pagina_lancamento_diario()
-
 
 
 def pagina_relatorios_globais():
@@ -943,7 +951,7 @@ def importar_turnos_de_arquivo(arquivo, setor_padrao: str | None = None) -> int:
     return total
 
 # ------------------------------
-# Página de Lançamento Diário (sem login)
+# Página de Lançamento Diário (sem login adicional)
 # ------------------------------
 
 def pagina_lancamento_diario():
@@ -1083,10 +1091,19 @@ def pagina_turnos():
             st.rerun()
 
 # ------------------------------
-# Roteamento (sem login)
+# Roteamento (com login)
 # ------------------------------
+if not st.session_state.get("auth", False):
+    show_login()   # Para aqui até o usuário logar
 
+# Sidebar + logout
 st.sidebar.title("Menu")
+st.sidebar.caption(f"Usuário: {st.session_state.get('user_email','')}")
+if st.sidebar.button("Sair"):
+    for k in ("auth", "user_email"):
+        st.session_state.pop(k, None)
+    st.rerun()
+
 escolha = st.sidebar.radio("Navegação", ["Lançamento diário", "Colaboradores", "Turnos", "Relatórios"], index=0)
 
 with st.sidebar.expander("⚙️ Admin"):
@@ -1108,6 +1125,7 @@ with st.sidebar.expander("⚙️ Admin"):
             except Exception as e:
                 st.error(f"Erro ao importar: {e}")
 
+# Render das páginas
 if escolha == "Lançamento diário":
     pagina_lancamento_diario()
 elif escolha == "Colaboradores":
