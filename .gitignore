@@ -1,11 +1,17 @@
+# Ambientes virtuais
 .venv/
 venv/
+
+# Cache / compilados Python
 __pycache__/
 *.pyc
+
+# Banco local (SQLite legacy)
 *.db
+
+# Configs de IDEs
 .vscode/
 .vs/
+
+# Arquivos de sistema do Windows
 desktop.ini
-NUL
-cd
-python
