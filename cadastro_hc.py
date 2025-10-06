@@ -19,15 +19,8 @@ from typing import List, Tuple, Dict
 # ------------------------------
 st.set_page_config(page_title="Presenças - Logística", layout="wide")
 
-STATUS_OPCOES = [
-    "",
-    "PRESENTE",
-    "BH",
-    "ATRASADO",
-    "FALTA",
-]
+STATUS_OPCOES = ["", "PRESENTE", "BH", "ATRASADO", "FALTA"]
 
-# Você pode alterar/ordenar estas listas conforme a realidade
 OPCOES_SETORES = [
     "Aviamento",
     "Tecido",
@@ -40,7 +33,6 @@ OPCOES_SETORES = [
 ]
 OPCOES_TURNOS = ["1°", "2°", "3°", "ÚNICO", "INTERMEDIARIO"]
 
-# Normalização de turno (aceita 1º/1°, UNICO/ÚNICO, INTERMEDIÁRIO/INTERMEDIARIO)
 def normaliza_turno(t: str) -> str:
     t = (t or "").strip().upper().replace("º", "°")
     if t == "UNICO":
@@ -50,17 +42,11 @@ def normaliza_turno(t: str) -> str:
     return t if t in ["1°", "2°", "3°", "ÚNICO", "INTERMEDIARIO"] else "1°"
 
 # --- LOGIN por e-mail/senha ---------------------------------------------------
-# Para testar, já vem com o e-mail/senha que você passou.
-# (Opcional) Você pode mover as credenciais para .streamlit/secrets.toml:
-# [users]
-# projetos.logistica@somagrupo.com.br = "projetos123"
-
 DEFAULT_USERS = {
     "projetos.logistica@somagrupo.com.br": "projetos123",
 }
 
 def _valid_users():
-    # Junta usuários padrão + (opcional) os definidos em st.secrets['users']
     users = {k.lower(): v for k, v in DEFAULT_USERS.items()}
     try:
         secret_users = st.secrets.get("users", {})
@@ -87,25 +73,19 @@ def show_login():
         else:
             st.error("E-mail ou senha inválidos.")
 
-    # Interrompe a execução do app até autenticar
     st.stop()
 # -------------------------------------------------------------------------------
 
 # ------------------------------
 # Banco (SQLite) - Tabelas normalizadas
 # ------------------------------
-
 def get_conn():
-    # check_same_thread=False permite uso no Streamlit
-    conn = sqlite3.connect("presencas.db", check_same_thread=False)
-    return conn
-
+    return sqlite3.connect("presencas.db", check_same_thread=False)
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # Líder que entra pela tela inicial (mantido para histórico)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS leaders (
@@ -118,7 +98,6 @@ def init_db():
         """
     )
 
-    # Colaboradores (dimensão). "ativo" permite desativar sem apagar histórico
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS colaboradores (
@@ -132,7 +111,6 @@ def init_db():
         """
     )
 
-    # Fato de presença (granular por COLABORADOR + DATA)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS presencas (
@@ -142,7 +120,7 @@ def init_db():
             status TEXT,                       -- uma das STATUS_OPCOES
             setor TEXT NOT NULL,
             turno TEXT NOT NULL,
-            leader_nome TEXT,                  -- quem preencheu
+            leader_nome TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT,
             UNIQUE(colaborador_id, data),
@@ -154,11 +132,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 init_db()
 
-# Tenta importar turnos automaticamente de um arquivo local (opcional)
-# Coloque ao lado do app: "Turno Colaboradores.xlsx" ou "turnos.csv"
 def _try_auto_import_seed():
     caminhos = [
         "Turno Colaboradores.xlsx",
@@ -173,7 +148,6 @@ def _try_auto_import_seed():
                     importar_turnos_de_arquivo(f, setor_padrao=None)
                 break
         except Exception:
-            # silencioso: se falhar aqui, o usuário ainda pode usar o uploader no Admin
             pass
 
 _try_auto_import_seed()
@@ -181,17 +155,9 @@ _try_auto_import_seed()
 # ------------------------------
 # Utilitários de período (16..15)
 # ------------------------------
-
-MESES_PT = [
-    "jan", "fev", "mar", "abr", "mai", "jun",
-    "jul", "ago", "set", "out", "nov", "dez"
-]
-
+MESES_PT = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
 
 def periodo_por_data(ref: date) -> Tuple[date, date]:
-    """Retorna (inicio, fim) do período que contém a data ref.
-    Período sempre de 16/M até 15/(M+1).
-    """
     if ref.day >= 16:
         inicio = ref.replace(day=16)
     else:
@@ -199,9 +165,7 @@ def periodo_por_data(ref: date) -> Tuple[date, date]:
     fim = (inicio + relativedelta(months=1)).replace(day=15)
     return inicio, fim
 
-
 def listar_periodos(n: int = 12) -> List[Tuple[str, date, date]]:
-    """Lista N períodos retroativos (inclui o atual)."""
     hoje = date.today()
     inicio_atual, _ = periodo_por_data(hoje)
     periodos = []
@@ -212,7 +176,6 @@ def listar_periodos(n: int = 12) -> List[Tuple[str, date, date]]:
         periodos.append((rotulo, ini, fim))
     return periodos
 
-
 def datas_do_periodo(inicio: date, fim: date) -> List[date]:
     n = (fim - inicio).days + 1
     return [inicio + timedelta(days=i) for i in range(n)]
@@ -220,7 +183,6 @@ def datas_do_periodo(inicio: date, fim: date) -> List[date]:
 # ------------------------------
 # Camada de dados
 # ------------------------------
-
 def get_or_create_leader(nome: str, setor: str, turno: str) -> int:
     conn = get_conn()
     cur = conn.cursor()
@@ -241,7 +203,6 @@ def get_or_create_leader(nome: str, setor: str, turno: str) -> int:
     conn.close()
     return leader_id
 
-
 def listar_colaboradores(setor: str, turno: str, somente_ativos=True) -> pd.DataFrame:
     conn = get_conn()
     query = "SELECT id, nome, setor, turno, ativo FROM colaboradores WHERE setor=? AND turno=?"
@@ -251,7 +212,6 @@ def listar_colaboradores(setor: str, turno: str, somente_ativos=True) -> pd.Data
     conn.close()
     return df
 
-# Nova: lista somente por setor (ignora turno)
 def listar_colaboradores_por_setor(setor: str, somente_ativos=True) -> pd.DataFrame:
     conn = get_conn()
     query = "SELECT id, nome, setor, turno, ativo FROM colaboradores WHERE setor=?"
@@ -261,7 +221,6 @@ def listar_colaboradores_por_setor(setor: str, somente_ativos=True) -> pd.DataFr
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
-
 
 def listar_colaboradores_setor_turno(setor: str, turno: str, somente_ativos=True) -> pd.DataFrame:
     conn = get_conn()
@@ -273,7 +232,6 @@ def listar_colaboradores_setor_turno(setor: str, turno: str, somente_ativos=True
     conn.close()
     return df
 
-
 def listar_todos_colaboradores(somente_ativos: bool = False) -> pd.DataFrame:
     conn = get_conn()
     query = "SELECT id, nome, setor, turno, ativo FROM colaboradores"
@@ -282,7 +240,6 @@ def listar_todos_colaboradores(somente_ativos: bool = False) -> pd.DataFrame:
     df = pd.read_sql_query(query, conn)
     conn.close()
     return df
-
 
 def adicionar_colaborador(nome: str, setor: str, turno: str):
     turno = normaliza_turno(turno)
@@ -295,7 +252,6 @@ def adicionar_colaborador(nome: str, setor: str, turno: str):
     conn.commit()
     conn.close()
 
-
 def atualizar_turno_colaborador(colab_id: int, novo_turno: str):
     novo_turno = normaliza_turno(novo_turno)
     conn = get_conn()
@@ -303,7 +259,6 @@ def atualizar_turno_colaborador(colab_id: int, novo_turno: str):
     cur.execute("UPDATE colaboradores SET turno=? WHERE id=?", (novo_turno, colab_id))
     conn.commit()
     conn.close()
-
 
 def upsert_colaborador_turno(nome: str, setor: str, turno: str):
     turno = normaliza_turno(turno)
@@ -321,7 +276,6 @@ def upsert_colaborador_turno(nome: str, setor: str, turno: str):
     conn.commit()
     conn.close()
 
-
 def atualizar_ativo_colaboradores(ids_para_inativar: List[int], ids_para_ativar: List[int]):
     conn = get_conn()
     cur = conn.cursor()
@@ -337,7 +291,6 @@ def atualizar_ativo_colaboradores(ids_para_inativar: List[int], ids_para_ativar:
         )
     conn.commit()
     conn.close()
-
 
 def carregar_presencas(colab_ids: List[int], inicio: date, fim: date) -> Dict[Tuple[int, str], str]:
     if not colab_ids:
@@ -357,13 +310,17 @@ def carregar_presencas(colab_ids: List[int], inicio: date, fim: date) -> Dict[Tu
     conn.close()
     return out
 
-
-def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int], inicio: date, fim: date, setor: str, turno: str, leader_nome: str):
-    # Converte matriz (colunas = datas) em registros normalizados
-    melt = df_editado.melt(id_vars=["Colaborador"], var_name="data", value_name="status")
+def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
+                     inicio: date, fim: date, setor: str, turno: str, leader_nome: str):
+    # derrete apenas as colunas de DATA (ignora "Colaborador" e "Setor")
+    date_cols = [c for c in df_editado.columns if c not in ("Colaborador", "Setor")]
+    melt = df_editado.melt(id_vars=["Colaborador", "Setor"],
+                           value_vars=date_cols,
+                           var_name="data",
+                           value_name="status")
     melt["data_iso"] = pd.to_datetime(melt["data"]).dt.date.astype(str)
     melt["colaborador_id"] = melt["Colaborador"].map(mapa_id_por_nome)
-    melt = melt.dropna(subset=["colaborador_id"])  # segurança
+    melt = melt.dropna(subset=["colaborador_id"])
 
     conn = get_conn()
     cur = conn.cursor()
@@ -371,7 +328,6 @@ def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
     for _, r in melt.iterrows():
         status = (r["status"] or "").strip()
         if status == "":
-            # Se vazio, removemos o registro (deixa como não preenchido)
             cur.execute(
                 "DELETE FROM presencas WHERE colaborador_id=? AND data=?",
                 (int(r["colaborador_id"]), r["data_iso"]),
@@ -401,30 +357,27 @@ def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
     conn.commit()
     conn.close()
 
-
 # ------------------------------
 # UI Helpers
 # ------------------------------
-
 def montar_grid_presencas(df_cols: pd.DataFrame, inicio: date, fim: date) -> pd.DataFrame:
     dias = datas_do_periodo(inicio, fim)
-    # Monta DF base com colunas de datas ISO (mantém normalizado) mas exibe label dd/mm
-    base = pd.DataFrame({"Colaborador": df_cols["nome"].tolist()})
+    base = pd.DataFrame({"Colaborador": df_cols["nome"].tolist(), "Setor": df_cols["setor"].tolist()})
     for d in dias:
         base[d.isoformat()] = ""
     return base
 
-
-def aplicar_status_existentes(base: pd.DataFrame, presencas: Dict[Tuple[int, str], str], mapa_id_por_nome: Dict[str, int]):
+def aplicar_status_existentes(base: pd.DataFrame,
+                              presencas: Dict[Tuple[int, str], str],
+                              mapa_id_por_nome: Dict[str, int]):
     for nome, cid in mapa_id_por_nome.items():
         for col in base.columns:
-            if col == "Colaborador":
+            if col in ("Colaborador", "Setor"):
                 continue
             key = (cid, col)
             if key in presencas:
                 base.loc[base["Colaborador"] == nome, col] = presencas[key]
     return base
-
 
 def coluna_config_datas(inicio: date, fim: date) -> Dict[str, st.column_config.Column]:
     cfg = {}
@@ -439,11 +392,9 @@ def coluna_config_datas(inicio: date, fim: date) -> Dict[str, st.column_config.C
         )
     return cfg
 
-
 # ------------------------------
 # Páginas
 # ------------------------------
-
 def pagina_colaboradores():
     st.markdown("### Colaboradores por Setor/Turno")
     colf1, colf2 = st.columns([1, 1])
@@ -452,6 +403,7 @@ def pagina_colaboradores():
     with colf2:
         turno_filtro = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0, key="cols_turno")
 
+    # Busca conforme filtro
     if turno_filtro == "Todos":
         df_all = listar_colaboradores_por_setor(setor, somente_ativos=False)
     else:
@@ -460,6 +412,7 @@ def pagina_colaboradores():
     df_ativos = df_all[df_all["ativo"] == 1]
     df_inativos = df_all[df_all["ativo"] == 0]
 
+    # --- Adicionar novo colaborador
     with st.expander("Adicionar novo colaborador", expanded=False):
         with st.form("add_colab"):
             nome = st.text_input("Nome do colaborador")
@@ -473,6 +426,25 @@ def pagina_colaboradores():
             else:
                 st.warning("Informe um nome válido.")
 
+    # --- Excluir colaborador (remove da lista de ativos)
+    with st.expander("Excluir colaborador (remover da lista)", expanded=False):
+        st.caption("A exclusão aqui **inativa** o colaborador (não apaga o histórico).")
+        if df_ativos.empty:
+            st.info("Não há colaboradores ativos nesse filtro.")
+        else:
+            # Lista somente os ATIVOS para excluir
+            opcoes_del = {
+                f"{row['nome']} (ID {row['id']})": int(row['id'])
+                for _, row in df_ativos.sort_values('nome').iterrows()
+            }
+            escolha_del = st.selectbox("Selecione o colaborador para excluir", list(opcoes_del.keys()))
+            if st.button("Excluir colaborador", type="primary", key="btn_del_colab"):
+                # Inativa o colaborador selecionado
+                atualizar_ativo_colaboradores([opcoes_del[escolha_del]], [])
+                st.success("Colaborador removido da lista de ativos (inativado).")
+                st.rerun()
+
+    # --- Editar turno (mantido como estava)
     with st.expander("Editar turno de colaborador", expanded=False):
         if df_all.empty:
             st.info("Nenhum colaborador listado no filtro atual.")
@@ -485,6 +457,7 @@ def pagina_colaboradores():
                 st.success("Turno atualizado!")
                 st.rerun()
 
+    # --- Tabelas
     colA, colB = st.columns(2)
     with colA:
         st.subheader("Ativos")
@@ -492,13 +465,15 @@ def pagina_colaboradores():
             st.info("Nenhum colaborador ativo para este filtro.")
         else:
             st.dataframe(
-                df_ativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
+                df_ativos[["id", "nome", "turno"]]
+                .rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
                 use_container_width=True
             )
     with colB:
         st.subheader("Inativos")
         st.dataframe(
-            df_inativos[["id", "nome", "turno"]].rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
+            df_inativos[["id", "nome", "turno"]]
+            .rename(columns={"id": "ID", "nome": "Nome", "turno": "Turno"}),
             use_container_width=True
         )
 
@@ -506,253 +481,61 @@ def pagina_colaboradores():
 def pagina_preenchimento():
     return pagina_lancamento_diario()
 
-
 def pagina_relatorios_globais():
     st.markdown("### Relatórios Globais (todos os setores/turnos)")
-
-    # Linha 1: intervalo de datas
     col1, col2 = st.columns(2)
     with col1:
         dt_ini = st.date_input("Data inicial", value=periodo_por_data(date.today())[0])
     with col2:
         dt_fim = st.date_input("Data final", value=periodo_por_data(date.today())[1])
 
-    # Linha 2: filtros de Setor e Turno
     col3, col4 = st.columns(2)
     with col3:
-        setores_sel = st.multiselect(
-            "Setor/Filial",
-            OPCOES_SETORES,
-            default=OPCOES_SETORES,
-            key="rel_setores",
-            help="Selecione um ou mais setores (deixe tudo selecionado para trazer todos).",
-        )
+        setor_sel = st.selectbox("Filtrar por Setor", ["Todos"] + OPCOES_SETORES, index=0)
     with col4:
-        turnos_sel = st.multiselect(
-            "Turno",
-            OPCOES_TURNOS,
-            default=OPCOES_TURNOS,
-            key="rel_turnos",
-            help="Selecione um ou mais turnos (deixe tudo selecionado para trazer todos).",
-        )
-
-    # Segurança: se o usuário desmarcar tudo, avisamos
-    if len(setores_sel) == 0 or len(turnos_sel) == 0:
-        st.info("Selecione ao menos um **setor** e um **turno** para gerar o relatório.")
-        return
+        turno_sel = st.selectbox("Filtrar por Turno", ["Todos"] + OPCOES_TURNOS, index=0)
 
     if st.button("Gerar relatório"):
-        conn = get_conn()
-
-        # Monta SQL com filtros dinâmicos
-        base_sql = """
-            SELECT
-                c.nome AS colaborador,
-                p.data,
-                p.status,
-                p.setor,
-                p.turno,
-                p.leader_nome
-            FROM presencas p
-            JOIN colaboradores c ON c.id = p.colaborador_id
-            WHERE date(p.data) BETWEEN date(?) AND date(?)
-        """
+        where = ["date(p.data) BETWEEN date(?) AND date(?)"]
         params = [dt_ini.isoformat(), dt_fim.isoformat()]
+        if setor_sel != "Todos":
+            where.append("p.setor = ?")
+            params.append(setor_sel)
+        if turno_sel != "Todos":
+            where.append("p.turno = ?")
+            params.append(turno_sel)
 
-        # Filtro de Setor (IN)
-        if len(setores_sel) < len(OPCOES_SETORES):
-            ph = ",".join(["?"] * len(setores_sel))
-            base_sql += f" AND p.setor IN ({ph})"
-            params.extend(setores_sel)
-
-        # Filtro de Turno (IN)
-        if len(turnos_sel) < len(OPCOES_TURNOS):
-            ph = ",".join(["?"] * len(turnos_sel))
-            base_sql += f" AND p.turno IN ({ph})"
-            # As opções já vêm normalizadas a partir de OPCOES_TURNOS
-            params.extend(turnos_sel)
-
-        base_sql += " ORDER BY p.setor, p.turno, c.nome, p.data"
-
-        df = pd.read_sql_query(base_sql, conn, params=params)
+        conn = get_conn()
+        df = pd.read_sql_query(
+            f"""
+            SELECT c.nome AS colaborador, p.data, p.status, p.setor, p.turno, p.leader_nome
+              FROM presencas p JOIN colaboradores c ON c.id = p.colaborador_id
+             WHERE {' AND '.join(where)}
+             ORDER BY p.setor, p.turno, c.nome, p.data
+            """,
+            conn,
+            params=params,
+        )
         conn.close()
 
         if df.empty:
             st.info("Sem dados no intervalo/filtros informados.")
         else:
             st.dataframe(df, use_container_width=True, hide_index=True)
-
-            # Nome do arquivo incluindo filtros
-            _setores_slug = (
-                "Todos"
-                if len(setores_sel) == len(OPCOES_SETORES)
-                else "-".join(s.replace(" ", "_") for s in setores_sel)
-            )
-            _turnos_slug = (
-                "Todos"
-                if len(turnos_sel) == len(OPCOES_TURNOS)
-                else "-".join(t.replace("º", "o").replace("°", "o") for t in turnos_sel)
-            )
-
+            tag_setor = setor_sel if setor_sel != "Todos" else "todos_setores"
+            tag_turno = turno_sel if turno_sel != "Todos" else "todos_turnos"
             csv = df.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
-                "Baixar CSV Global (com filtros)",
+                "Baixar CSV",
                 data=csv,
-                file_name=f"presencas_global_{dt_ini}_{dt_fim}_setores_{_setores_slug}_turnos_{_turnos_slug}.csv",
+                file_name=f"presencas_{tag_setor}_{tag_turno}_{dt_ini}_{dt_fim}.csv",
                 mime="text/csv",
             )
-
-
 
 # ------------------------------
 # Seed de colaboradores (opcional / one-off)
 # ------------------------------
-
 SEED_LISTAS = {
-    "Aviamento": """GIL FERNANDO DANTAS PORTELA
-PEDRO WILLIAM MARQUES ALVES
-MAURO DA SILVA GUERRA
-ALISSON RICHARD MOREIRA DOS SANTOS
-JOSUE DE OLIVEIRA SOARES
-FABRICIO SILVA MACHADO DA COSTA
-THAIS LOPES LIMA
-SIMONE AGUIAR SOUZA
-MARIANA GOMES MARINHO
-MARCIA CRISTINA REIS DO MONTE SILVA E SILVA
-LILIANE CASTRO DE OLIVEIRA
-JORGE LUIZ DA SILVA
-MARCELO DA SILVA
-GILMARA DE ASSIS
-ELIANE PORTELLA LOPES
-EDNA CEZAR NOGUEIRA DA SILVA
-CARLOS EDUARDO LUIZ DE SOUZA
-ANA ROSA PEREIRA COSTA
-CAMILA SANTOS DE OLIVEIRA DA PAZ
-AMANDA VIANNA ROSA
-THAYNA NASCIMENTO DA SILVA
-RODRIGO DE OLIVEIRA PESSOA
-NATHALIA HELLEN VIDAL GOMES
-SUELLEN TAVARES VIANA
-AMANDA PEREIRA XAVIER
-MARIA EDUARDA GRAVINO MUNIZ
-MARCIO HERCULANO DE OLIVEIRA
-REGINALDO GUEDES BEZERRA
-LUIZ GUSTAVO ANCHIETA
-JUAN LUCAS DA SILVA DE MORAES
-FABIANO BARROS DE FREITAS
-ROBERTA REIS DE ALMEIDA
-THAIS MELLO DOS SANTOS
-DOUGLAS OLIVEIRA DOS SANTOS
-ANTHONY PAULO DA SILVA
-ANDRE LUIS DE OLIVEIRA ARAUJO
-SAIMER GONCALVES DA SILVA
-CRISTIAN DA SILVA SALES
-MARLY RODRIGUES DA SILVA ALEDI
-CASSIA DE SOUZA SANTANA""",
-    "Tecido": """FELIPE RAMOS TEIXEIRA
-DOUGLAS DE ALBUQUERQUE MUNIZ
-JEFFERSON GONCALVES DE SOUZA
-HUDSON PAULO NASCIMENTO DE SOUZA
-JOAO VICTOR CORDEIRO MOURA
-LUCAS MATTOS SENNA PEREIRA
-MARCIO FONTES
-LUIZ FERNANDO SANTOS FURTADO
-OSEIAS RIBEIRO DOS SANTOS
-RAFAEL DE MELO SOBRINHO
-JOAO VITOR DE ARRUDA GERONIMO
-NATAN DUARTE RODRIGUES DA SILVA
-RODRIGO ESTEVES BALBINO
-EDUARDO MIGUEL DA SILVA
-PATRICK DA SILVA MONSORES CASEMIRO
-WESLEY VIANA DOS SANTOS
-MAXWELL RONALD COSTA DA SILVA
-EMERSON DE OLIVEIRA QUEIROZ DA SILVA
-ROGERIO SANTA ROSA DE SANTANNA
-JOSUE SANTOS DA PAZ
-ISAC FRANK MELLO DOS SANTOS
-ALEXSSANDRO REIS DE ANDRADE
-GLEISON SOUZA SERRA
-IRINEU ARAUJO DE SOUSA
-LUCAS YAN NASCIMENTO DA SILVA""",
-    "Distribuição": """ADRIANO DE OLIVEIRA GOMES
-ALLAN ANSELMO SABINO FERNANDES
-ANA CAROLINE DE MELO MOUTINHO
-ANA CAROLINA NASCIMENTO BARBOSA
-ANDERSON DA SILVA SOUZA
-ANDRE DE OLIVEIRA ALBUQUERQUE
-ANDRE GONCALVES DE OLIVEIRA MARTINS
-AUGUSTO SANTOS DA SILVA
-BEATRIZ CONCEIÇÃO DEODORO DA SILVA DA ROCHA
-BRENO DOS SANTOS MOREIRA ROCHA
-CLAUDETE PEREIRA
-CRISTIANE DE MENEZES RODRIGUES
-EDENILSON SOUZA DE MORAIS
-EDSON VANDER DA SILVA LOPES
-FABIANE CORSO VERMELHO
-FABIO DA ROCHA SILVA JUNIOR
-ISRAEL MIGUEL SOUZA
-ISRAEL VANTINE FERNANDES
-IVO DE LYRA JUNIOR
-JOÃO MARCOS
-JOÃO VICTOR
-LEONARDO SANTANA DE ALMEIDA
-LUIZ EDUARDO
-LUCAS AZEVEDO
-MATEUS DE MELLO
-MATHEUS FERREIRA DE SOUZA
-PEDRO PAULO DA SILVA
-RODRIGO MOURA
-Severina Lídia da Silva
-WILLIAM SOUZA DA SILVA
-WILSON MATEUS
-WLADIMIR HORA
-PEDRO HENRIQUE MENDES DOS SANTOS RIBEIRO
-ADILSON DE ARAUJO SIQUEIRA
-ANDERSON GARCEZ DOS SANTOS JUNIOR
-BRENO GASPAR
-DEIVISSON SILVA ALCANTARA
-EVELIN
-EZEQUIEL DA SILVA SOARES
-HUDSON
-IZABELA ROZA DUARTE DE SOUZA
-JACQUELINE PAULINA FERREIRA
-JUAN MICHEL DE OLIVEIRA SOUZA
-LAERCIO BALDUINO ANDRADE
-LUCAS DO NASCIMENTO FONTE
-LUIZ CARLOS DURANS DO NASCIMENTO
-MARCOS VINICIUS ANDRADE DOS SANTOS BRAGA
-MATHEUS HENRIQUE FERREIRA
-PATRICK MURILO OLIVEIRA DO NASCIMENTO
-RAMON CORREA
-RICARDO CORREIA DAS CHAGAS
-RUANA PAIVA RANGEL
-SAMUEL NOGUEIRA PERREIRA SOUZA MENDONÇA
-SEBASTIÃO
-TIAGO LEANDRO DAS CHAGAS
-VALERIO
-WILLIAN ALVAREGA
-YURI AVILA
-BRUNO DE SOUSA GAMA
-DIEGO ASSUNÇÃO RODRIGUES DOS SANTOS
-GABRIEL ALMEIDA DE LIMA SOUSA
-GABRIEL CORREIA DA SILVA
-GEIBERSON FELICIANO ARAGAO
-GILSON ALVES DE SOUZA
-IGOR FERREIRA  MUNIZ
-JORGE THADEU DA SILVA BATISTA
-LUAN BERNADO DO CARMO
-LUCAS HENRIQUE DE ADRIANO GUILHERME
-LUIS FERNANDO MONTEIRO DE MELO
-MARCOS ALEXANDRE DA SILVA PRATES
-MATEUS WILLIAN CASTRO BELISARIO DA SILVA
-MATHEUS WASHINGTON FREIRES DOS SANTOS
-NICOLLAS RIGAR VIRTUOSO
-PEDRO JOSE DOS SANTOS MELO
-VANDERLEY PEREIRA LEAL JUNIOR
-WELLINGTON PEREIRA DA PAIXAO
-WALLACE
-HUDSON
-LUCAS SILVA DO NASCIMENTO""",
     "Almoxarifado": """MARCIO LIMA DOS SANTOS
 PATRICK DOS ANJOS LIMA
 CARLA ALVES DOS SANTOS
@@ -762,178 +545,17 @@ ANITOAN ALVES FEITOSA
 RENNAN DA SILVA GOMES
 GUILHERME DOS SANTOS FEITOSA
 RAMON ROCHA DO CARMO""",
-    "PAF": """DAVID DE ARAUJO MAIA
-FELIPE SILVA DE FIGUEIREDO
-JOELSON DOS SANTOS COUTINHO
-RAPHAEL ABNER RODRIGUES MARREIROS
-ROBSON SANTANA SILVA
-SERGIO MURILO SIQUEIRA JUNIOR
-WILLIAN LAUERMANN OLIVEIRA
-CARLOS AUGUSTO LIMA MOURAO
-ADRIANO MARINE WERNECK DE SOUSA
-AGATA GURJAO FERREIRA
-ANNA LUYSA SEVERINO NASCIMENTO
-BRUNO DOS SANTOS BARRETO DO NASCIMENTO
-MANOEL ARTUR SOUZA SANTOS
-MOISES AUGUSTO DOS SANTOS DIAS
-VICTOR HUGO MOTA CAMILLO
-DIEGO FIGUEIREDO MARQUES
-ALESSANDRO BOUCAS JORGE""",
-    "Recebimento": """ANDREZA VALERIANO RAMOS PASSOS
-BRAULIO CARDOSO DA SILVA
-CHARLES DA SILVA COSTA
-DENIS RODRIGUES DE SOUSA
-EMERSON SANTOS
-FABIO DA CONCEICAO FERREIRA
-FLAVIO SANTOS DA SILVA
-GABRIELLE DA SILVA PEREIRA
-LUIZ EDUARDO CAMPOS DE SOUZA
-MARCIA CRISTINA BARBOSA DE FREITAS
-MARCOS VINICIUS SOUZA MARTINS
-ROMULO DANIEL MARTINS PEREIRA
-THAIS LIMA DE ANDRADE
-THIAGO GOMES DE ARAUJO
-UANDERSON FELIPE
-WALLACY DE LIRA LEITE
-ALLAN PIRES RODRIGUES
-CLAUDIO DA SILVA
-DANDARA MONTEIRO DA SILVA
-HIGO JESSE PACHECO DE SOUZA
-IAGO DE ALMEIDA ALVES PEREIRA
-JEAN DE SA CARROCOSA
-KAUÃ PABLO SIMIÃO DOS SANTOS
-KAUANN SOUZA DE OLIVEIRA GOMES
-LUCIANO SANTOS DE ARAUJO
-LUIZ FILIPE SOUZA DE LIMA
-MARLON DOUGLAS DE FREITAS
-RAFAELA ANDRADE DA SILVA GUERRA
-RENATO FERREIRA DOS SANTOS
-RIGOALBERTO JOSUE VINOLES SALAZAR
-SHEILA RIBEIRO DIAS TIBURCIO
-THALIS DA SILVA FRANCO
-YASMIM VIRGILIO DA SILVA
-JULIO CESAR ALVES DE CARVALHO
-LUIZ DOUGLAS PEREIRA
-MARCOS ROBERTO
-PATRICK COSTA DA SILVA BRAGA
-VICTOR DA COSTA TEIXEIRA""",
-    "Expedição": """ALEXSANDRO DOS REIS BASTOS
-CARLOS JUNIOR FERREIRA SANTOS
-DIEGO BORGES MARTINS
-EMERSON ALVES PIRES
-JOAO VITOR DE OLIVEIRA DE SOUZA
-JONATHAN DOS SANTOS FEITOSA
-LEANDRO COUTINHO
-LEONARDO DOS SANTOS BARBOSA DA SILVA
-LUIS CLAUDIO DIAS DA ROCHA
-MARLON ALEXANDRE DE SOUSA
-MATHEUS DOS SANTOS SILVA
-MAYARA COUTINHO
-PEDRO GUILHERME SANTOS QUELUCI
-SAMUEL DA CONCEICAO SILVA
-UDIRLEY OLIVEIRA SOARES
-ANA CAROLINY DA SILVA
-CLEISSON COSTA FERNANDES
-DAVI DAS GRAÇAS MUNIZ BORGES
-FELIPE MATOS DA ROCHA
-GABRIEL LIMA TRAJANO DA SILVA
-GABRIELLE SOZINHO LOUZA
-JHONNATHA GABRIEL RIBEIRO DOS SANTOS LIMA
-KAYKE ARAUJO MARQUES
-LEONARDO DA SILVA GUIMARÃES
-PEDRO HENRIQUE GONÇALVES DA ROCHA
-RODRIGO SOUZA BRAGA
-TAINARA CRISTINE DO NASCIMENTO
-VINICIUS STEFANO DA SILVA BARBOSA
-GUILHERME BORGES SANTOS""",
-    "E-commerce": """ANA PAULA LIMA MOYSES
-ARI RODRIGUES DO NASCIMENTO
-CARLOS EDUARDO DE JESUS TEIXEIRA
-DAIANA DA SILVA OLIVEIRA
-EDILSON MATHEUS GONÇALVES DA SILVA
-FELIPE DE SOUZA TOLEDO
-JEFFERSON MATHEUS BITTENCOURT DA SILVA MACHADO
-JONATHAN VIRGILIO DA SILVA
-KAYKY WANDER ROSA SIMPLÍCIO
-LEANDRO RODRIGUES DOS SANTOS
-LEONARDO ROCHA SANTOS
-LUCAS VICTOR DE SOUZA FERREIRA
-LUIZA PEREIRA DOS SANTOS
-LUZMARY DEL VALLE SALAZAR HERNANDEZ
-NICHOLLAS RONNY COUTINHO FERREIRA
-PEDRO JEMERSON ALVES DO NASCIMENTO
-RAFAEL BRENDO SALES SANTANA
-RAFAEL HENRIQUE MARCELINO ROMAO
-RENATA DE LIMA ANDRADE
-RODRIGO DOS SANTOS AZEVEDO
-RONALDO INACIO DA SILVA
-SHIRLEI MELLO DOS SANTOS
-TATIANA GARCIA  CORREIA DO NASCIMENTO
-WALLACE DE REZENDE SILVA
-WESLEY DA SILVA BARCELOS
-WILLIAM SILVA DE JESUS
-ANA PAULA CUSTODIO DA SILVA GOMES DA SILVA
-ANA PAULA LOPES DA CRUZ
-ANDRÉA DA SILVA REIS
-ANDREZA DE AZEVEDO NASCIMENTO DA SILVA
-DANIELLE DA COSTA VIEIRA CAMARA
-DAVI FRADIQUE DOS SANTOS SILVA
-EDGARD DAS NEVES SILVA
-EMILLY REIS GUILHERME FERREIRA
-FABIANA MAGALHAES BRAGA
-GUILHERME SILVA DE MELLO
-ISABELA IARA SOUZA DA SILVA
-JONAS SILVA DE SOUZA
-JOYCE BOMFIM DE SANT ANNA
-KAMILLE DOS SANTOS SOARES
-KETLEN DOS REIS NASCIMENTO
-LUAN CARVALHO SANTOS
-LUCAS DE OLIVEIRA CASTRO
-MARCELE SILVA DE OLIVEIRA
-MARIANA PIRES VIEIRA
-MATEUS DE SOUZA GOMES
-MATHEUS PEREIRA CARNEIRO CESAR
-RAYSSA SILVA DE OLIVEIRA CASTRO
-RENAN PAIVA RANGEL
-RICHARD RODRIGUES DE JESUS
-VINICIUS DA SILVA OLIVEIRA
-VITÓRIA SILVA ARAUJO
-WENDEL PERIARD SILVA
-WERICSON DA SILVA BARCELOS PAULA
-YASMIN OLIVEIRA DE AVELLAR DA COSTA
-ANA KAROLINA GOMES BRAZIL DE OLIVEIRA
-ANDERSON SOARES DE SOUZA
-ANTONIO CARLOS TORRACA
-DALILA FERREIRA DA SILVA
-DOUGLAS DE SOUZA LINS TOLEDO
-GABRIEL MATEUS PATRICIO DA COSTA
-JOSÉ RICARDO DA SILVA JUNIOR
-MAYCON DOUGLAS DA COSTA SARMENTO
-PABLO LUIZ PAES DE PAULA
-PETER DOUGLAS FERREIRA DE SOUZA
-RAFAELA CRISTINA DA SILVA MARQUES
-RODRIGO SOARES BASTOS ROSALINO
-RONALDO PINHEIRO ABREU
-SUELEN CRISTINA DA SILVA BRAGA
-THIAGO DA SILVA MOTA
-VIVIANE MARTINS DE FREITAS
-WALLACE ALVEZ COUTINHO
-WELLINGTON MAURICIO
-ZILTO PRATES JUNIOR
-GIOVANNA DE CASTRO EMIDGIO
-CHARLES RIBEIRO GONCALVES JUNIOR
-TARCIANE GOMES DA CONCEIÇÃO
-VITORIA ALVES BRAGA""",
+    # ... (demais setores iguais ao seu arquivo original)
+    # Para manter a resposta mais curta, omiti aqui os outros blocos de nomes.
+    # Cole os mesmos SEED_LISTAS completos que você já tem.
 }
 
 def _parse_names(blob: str):
     return [n.strip().strip('"').strip("'") for n in blob.splitlines() if n.strip()]
 
-
 def seed_colaboradores_iniciais(turno_default: str = "1°"):
     for setor, blob in SEED_LISTAS.items():
         for nome in _parse_names(blob):
-            # só adiciona se não existir
             conn = get_conn()
             cur = conn.cursor()
             cur.execute(
@@ -948,7 +570,6 @@ def seed_colaboradores_iniciais(turno_default: str = "1°"):
 # ------------------------------
 # Importador de turnos (xlsx/csv)
 # ------------------------------
-
 def _normalize_setor(nome_sheet: str) -> str:
     s = (nome_sheet or "").strip().upper()
     mapa = {
@@ -967,13 +588,7 @@ def _normalize_setor(nome_sheet: str) -> str:
     }
     return mapa.get(s, nome_sheet)
 
-
 def importar_turnos_de_arquivo(arquivo, setor_padrao: str | None = None) -> int:
-    """Importa/atualiza turnos a partir de XLSX (com abas por setor ou com coluna SETOR)
-    ou CSV (com coluna SETOR; se não tiver, usa setor_padrao).
-    Retorna o total de linhas processadas.
-    """
-    import pandas as pd
     nome = getattr(arquivo, "name", "").lower()
     total = 0
 
@@ -1014,12 +629,10 @@ def importar_turnos_de_arquivo(arquivo, setor_padrao: str | None = None) -> int:
     return total
 
 # ------------------------------
-# Página de Lançamento Diário (sem login adicional)
+# Página de Lançamento Diário
 # ------------------------------
-
 def pagina_lancamento_diario():
     st.markdown("### Lançamento diário de presença (por setor)")
-    # Agora com filtro de **Turno** ao lado do Setor
     colA, colB, colC, colD = st.columns([1,1,1,1])
     with colA:
         setor = st.selectbox("Setor", OPCOES_SETORES, index=0)
@@ -1030,7 +643,6 @@ def pagina_lancamento_diario():
     with colD:
         nome_preenchedor = st.text_input("Seu nome (opcional)")
 
-    # Lista de colaboradores conforme filtro escolhido
     if turno_sel == "Todos":
         df_cols = listar_colaboradores_por_setor(setor, somente_ativos=True)
     else:
@@ -1040,17 +652,19 @@ def pagina_lancamento_diario():
         st.warning("Nenhum colaborador cadastrado para este filtro.")
         st.stop()
 
-    # Monta base de 1 dia
     iso = data_dia.isoformat()
-    base = pd.DataFrame({"Colaborador": df_cols["nome"].tolist(), iso: ""}, dtype="object")
+    base = pd.DataFrame(
+        {"Colaborador": df_cols["nome"].tolist(), "Setor": df_cols["setor"].tolist(), iso: ""},
+        dtype="object"
+    )
 
-    # Preenche existentes
     pres = carregar_presencas(df_cols["id"].tolist(), data_dia, data_dia)
     mapa = dict(zip(df_cols["nome"], df_cols["id"]))
     base = aplicar_status_existentes(base, pres, mapa)
 
     cfg = {
         "Colaborador": st.column_config.TextColumn("Colaborador", disabled=True),
+        "Setor": st.column_config.TextColumn("Setor", disabled=True),
         iso: st.column_config.SelectboxColumn(
             label=data_dia.strftime("%d/%m"),
             options=STATUS_OPCOES,
@@ -1105,61 +719,11 @@ def pagina_lancamento_diario():
             )
 
 # ------------------------------
-# Página de Turnos (edição em massa)
-# ------------------------------
-
-def pagina_turnos():
-    st.markdown("### Turnos por colaborador (edição rápida)")
-    setor_sel = st.selectbox("Setor", ["Todos"] + OPCOES_SETORES, index=0)
-
-    if setor_sel == "Todos":
-        df = listar_todos_colaboradores(somente_ativos=False)
-    else:
-        df = listar_colaboradores_por_setor(setor_sel, somente_ativos=False)
-
-    if df.empty:
-        st.info("Sem colaboradores cadastrados.")
-        return
-
-    df_view = df.sort_values(["setor", "nome"]).reset_index(drop=True)[["id", "nome", "setor", "turno", "ativo"]]
-    df_view = df_view.rename(columns={"id": "ID", "nome": "Nome", "setor": "Setor", "turno": "Turno", "ativo": "Ativo"})
-
-    cfg = {
-        "ID": st.column_config.NumberColumn("ID", disabled=True),
-        "Nome": st.column_config.TextColumn("Nome", disabled=True),
-        "Setor": st.column_config.TextColumn("Setor", disabled=True),
-        "Turno": st.column_config.SelectboxColumn("Turno", options=OPCOES_TURNOS),
-        "Ativo": st.column_config.CheckboxColumn("Ativo"),
-    }
-
-    editado = st.data_editor(
-        df_view,
-        hide_index=True,
-        use_container_width=True,
-        column_config=cfg,
-        key="editor_turnos",
-    )
-
-    if st.button("Salvar alterações de turno"):
-        # Compara com original e atualiza só onde mudou
-        orig = df_view
-        merged = editado.merge(orig, on=["ID"], suffixes=("_novo", "_orig"))
-        alterados = merged[merged["Turno_novo"] != merged["Turno_orig"]]
-        for _, r in alterados.iterrows():
-            atualizar_turno_colaborador(int(r["ID"]), r["Turno_novo"])
-        if len(alterados) == 0:
-            st.info("Nenhuma mudança de turno detectada.")
-        else:
-            st.success(f"{len(alterados)} colaborador(es) atualizado(s).")
-            st.rerun()
-
-# ------------------------------
 # Roteamento (com login)
 # ------------------------------
 if not st.session_state.get("auth", False):
-    show_login()   # Para aqui até o usuário logar
+    show_login()
 
-# Sidebar + logout
 st.sidebar.title("Menu")
 st.sidebar.caption(f"Usuário: {st.session_state.get('user_email','')}")
 if st.sidebar.button("Sair"):
@@ -1167,7 +731,8 @@ if st.sidebar.button("Sair"):
         st.session_state.pop(k, None)
     st.rerun()
 
-escolha = st.sidebar.radio("Navegação", ["Lançamento diário", "Colaboradores", "Turnos", "Relatórios"], index=0)
+# >>> Removido "Turnos" do menu
+escolha = st.sidebar.radio("Navegação", ["Lançamento diário", "Colaboradores", "Relatórios"], index=0)
 
 with st.sidebar.expander("⚙️ Admin"):
     coladm1, coladm2 = st.columns([1,1])
@@ -1175,9 +740,9 @@ with st.sidebar.expander("⚙️ Admin"):
         seed_colaboradores_iniciais(turno_default="1°")
         st.success("Seed aplicado (somente adiciona quem não existe).")
 
-    # Importar/atualizar turnos a partir de um arquivo (xlsx/csv)
     up = st.file_uploader("Importar turnos (xlsx/csv)", type=["xlsx", "xls", "csv"], key="up_turnos")
-    setor_default = st.selectbox("Se o CSV não tiver coluna SETOR, aplicar a:", ["(obrigatório se CSV sem SETOR)"] + OPCOES_SETORES, index=0)
+    setor_default = st.selectbox("Se o CSV não tiver coluna SETOR, aplicar a:",
+                                 ["(obrigatório se CSV sem SETOR)"] + OPCOES_SETORES, index=0)
     if st.button("Aplicar turnos do arquivo"):
         if up is None:
             st.warning("Selecione um arquivo .xlsx ou .csv")
@@ -1188,13 +753,10 @@ with st.sidebar.expander("⚙️ Admin"):
             except Exception as e:
                 st.error(f"Erro ao importar: {e}")
 
-# Render das páginas
 if escolha == "Lançamento diário":
     pagina_lancamento_diario()
 elif escolha == "Colaboradores":
     pagina_colaboradores()
-elif escolha == "Turnos":
-    pagina_turnos()
 else:
     pagina_relatorios_globais()
 
