@@ -509,36 +509,99 @@ def pagina_preenchimento():
 
 def pagina_relatorios_globais():
     st.markdown("### Relatórios Globais (todos os setores/turnos)")
+
+    # Linha 1: intervalo de datas
     col1, col2 = st.columns(2)
     with col1:
         dt_ini = st.date_input("Data inicial", value=periodo_por_data(date.today())[0])
     with col2:
         dt_fim = st.date_input("Data final", value=periodo_por_data(date.today())[1])
 
+    # Linha 2: filtros de Setor e Turno
+    col3, col4 = st.columns(2)
+    with col3:
+        setores_sel = st.multiselect(
+            "Setor/Filial",
+            OPCOES_SETORES,
+            default=OPCOES_SETORES,
+            key="rel_setores",
+            help="Selecione um ou mais setores (deixe tudo selecionado para trazer todos).",
+        )
+    with col4:
+        turnos_sel = st.multiselect(
+            "Turno",
+            OPCOES_TURNOS,
+            default=OPCOES_TURNOS,
+            key="rel_turnos",
+            help="Selecione um ou mais turnos (deixe tudo selecionado para trazer todos).",
+        )
+
+    # Segurança: se o usuário desmarcar tudo, avisamos
+    if len(setores_sel) == 0 or len(turnos_sel) == 0:
+        st.info("Selecione ao menos um **setor** e um **turno** para gerar o relatório.")
+        return
+
     if st.button("Gerar relatório"):
         conn = get_conn()
-        df = pd.read_sql_query(
-            """
-            SELECT c.nome AS colaborador, p.data, p.status, p.setor, p.turno, p.leader_nome
-              FROM presencas p JOIN colaboradores c ON c.id = p.colaborador_id
-             WHERE date(p.data) BETWEEN date(?) AND date(?)
-             ORDER BY p.setor, p.turno, c.nome, p.data
-            """,
-            conn,
-            params=(dt_ini.isoformat(), dt_fim.isoformat()),
-        )
+
+        # Monta SQL com filtros dinâmicos
+        base_sql = """
+            SELECT
+                c.nome AS colaborador,
+                p.data,
+                p.status,
+                p.setor,
+                p.turno,
+                p.leader_nome
+            FROM presencas p
+            JOIN colaboradores c ON c.id = p.colaborador_id
+            WHERE date(p.data) BETWEEN date(?) AND date(?)
+        """
+        params = [dt_ini.isoformat(), dt_fim.isoformat()]
+
+        # Filtro de Setor (IN)
+        if len(setores_sel) < len(OPCOES_SETORES):
+            ph = ",".join(["?"] * len(setores_sel))
+            base_sql += f" AND p.setor IN ({ph})"
+            params.extend(setores_sel)
+
+        # Filtro de Turno (IN)
+        if len(turnos_sel) < len(OPCOES_TURNOS):
+            ph = ",".join(["?"] * len(turnos_sel))
+            base_sql += f" AND p.turno IN ({ph})"
+            # As opções já vêm normalizadas a partir de OPCOES_TURNOS
+            params.extend(turnos_sel)
+
+        base_sql += " ORDER BY p.setor, p.turno, c.nome, p.data"
+
+        df = pd.read_sql_query(base_sql, conn, params=params)
         conn.close()
+
         if df.empty:
-            st.info("Sem dados no intervalo informado.")
+            st.info("Sem dados no intervalo/filtros informados.")
         else:
             st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # Nome do arquivo incluindo filtros
+            _setores_slug = (
+                "Todos"
+                if len(setores_sel) == len(OPCOES_SETORES)
+                else "-".join(s.replace(" ", "_") for s in setores_sel)
+            )
+            _turnos_slug = (
+                "Todos"
+                if len(turnos_sel) == len(OPCOES_TURNOS)
+                else "-".join(t.replace("º", "o").replace("°", "o") for t in turnos_sel)
+            )
+
             csv = df.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
-                "Baixar CSV Global",
+                "Baixar CSV Global (com filtros)",
                 data=csv,
-                file_name=f"presencas_global_{dt_ini}_{dt_fim}.csv",
+                file_name=f"presencas_global_{dt_ini}_{dt_fim}_setores_{_setores_slug}_turnos_{_turnos_slug}.csv",
                 mime="text/csv",
             )
+
 
 
 # ------------------------------
