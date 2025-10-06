@@ -42,9 +42,17 @@ def normaliza_turno(t: str) -> str:
     return t if t in ["1°", "2°", "3°", "ÚNICO", "INTERMEDIARIO"] else "1°"
 
 # --- LOGIN por e-mail/senha ---------------------------------------------------
+# Quem pode logar (email -> senha)
 DEFAULT_USERS = {
-    "projetos.logistica@somagrupo.com.br": "projetos123",
+    "projetos.logistica@somagrupo.com.br": "projetos123",   # admin
+    "lucas.silverio@somagrupo.com.br": "lucas123",  # usuário comum (sem admin)
 }
+
+# Quem é admin
+ADMIN_EMAILS = {
+    "projetos.logistica@somagrupo.com.br",
+}
+
 
 def _valid_users():
     users = {k.lower(): v for k, v in DEFAULT_USERS.items()}
@@ -55,6 +63,14 @@ def _valid_users():
     except Exception:
         pass
     return users
+
+def is_admin() -> bool:
+    email = (st.session_state.get("user_email") or "").lower()
+    try:
+        admins_extra = set([e.lower() for e in st.secrets.get("admins", [])])
+    except Exception:
+        admins_extra = set()
+    return email in (ADMIN_EMAILS | admins_extra)
 
 def show_login():
     st.markdown("<h2 style='text-align:center;'>Login</h2>", unsafe_allow_html=True)
@@ -150,7 +166,8 @@ def _try_auto_import_seed():
         except Exception:
             pass
 
-_try_auto_import_seed()
+# >>> REMOVIDO o _try_auto_import_seed() aqui para não rodar a cada rerun
+# _try_auto_import_seed()
 
 # ------------------------------
 # Utilitários de período (16..15)
@@ -545,9 +562,7 @@ ANITOAN ALVES FEITOSA
 RENNAN DA SILVA GOMES
 GUILHERME DOS SANTOS FEITOSA
 RAMON ROCHA DO CARMO""",
-    # ... (demais setores iguais ao seu arquivo original)
-    # Para manter a resposta mais curta, omiti aqui os outros blocos de nomes.
-    # Cole os mesmos SEED_LISTAS completos que você já tem.
+    # ... demais setores (se quiser, mantenha sua lista completa)
 }
 
 def _parse_names(blob: str):
@@ -635,13 +650,13 @@ def pagina_lancamento_diario():
     st.markdown("### Lançamento diário de presença (por setor)")
     colA, colB, colC, colD = st.columns([1,1,1,1])
     with colA:
-        setor = st.selectbox("Setor", OPCOES_SETORES, index=0)
+        setor = st.selectbox("Setor", OPCOES_SETORES, index=0, key="lan_setor")
     with colB:
-        turno_sel = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0)
+        turno_sel = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0, key="lan_turno")
     with colC:
-        data_dia = st.date_input("Data do preenchimento", value=date.today())
+        data_dia = st.date_input("Data do preenchimento", value=date.today(), key="lan_data")
     with colD:
-        nome_preenchedor = st.text_input("Seu nome (opcional)")
+        nome_preenchedor = st.text_input("Seu nome (opcional)", key="lan_nome")
 
     if turno_sel == "Todos":
         df_cols = listar_colaboradores_por_setor(setor, somente_ativos=True)
@@ -673,13 +688,14 @@ def pagina_lancamento_diario():
     }
 
     st.markdown("#### Tabela do dia")
+    editor_key = f"editor_dia_{iso}_{setor}_{turno_sel}"
     editado = st.data_editor(
         base,
         use_container_width=True,
         hide_index=True,
         num_rows="dynamic",
         column_config=cfg,
-        key=f"editor_dia_{iso}_{setor}_{turno_sel}",
+        key=editor_key,
     )
 
     if st.button("Salvar dia"):
@@ -692,7 +708,10 @@ def pagina_lancamento_diario():
             turno=(turno_sel if turno_sel != "Todos" else "-"),
             leader_nome=nome_preenchedor or "",
         )
-        st.success("Registros salvos!")
+        st.success("Registros salvos/atualizados!")
+        # limpa o estado do editor para não “grudar” o valor antigo e recarrega a UI
+        st.session_state.pop(editor_key, None)
+        st.rerun()
 
     with st.expander("Exportar CSV do dia", expanded=False):
         conn = get_conn()
@@ -724,6 +743,12 @@ def pagina_lancamento_diario():
 if not st.session_state.get("auth", False):
     show_login()
 
+# >>> Auto-import: rode uma vez por sessão (se quiser manter)
+if not st.session_state.get("seed_loaded", False):
+    # Se não quiser auto-import, comente as duas linhas abaixo
+    # _try_auto_import_seed()
+    st.session_state["seed_loaded"] = True
+
 st.sidebar.title("Menu")
 st.sidebar.caption(f"Usuário: {st.session_state.get('user_email','')}")
 if st.sidebar.button("Sair"):
@@ -731,31 +756,38 @@ if st.sidebar.button("Sair"):
         st.session_state.pop(k, None)
     st.rerun()
 
-# >>> Removido "Turnos" do menu
-escolha = st.sidebar.radio("Navegação", ["Lançamento diário", "Colaboradores", "Relatórios"], index=0)
+# Opções de navegação (Colaboradores só aparece para admin)
+nav_opts = ["Lançamento diário"] + (["Colaboradores"] if is_admin() else []) + ["Relatórios"]
+escolha = st.sidebar.radio("Navegação", nav_opts, index=0)
 
-with st.sidebar.expander("⚙️ Admin"):
-    coladm1, coladm2 = st.columns([1,1])
-    if coladm1.button("Carregar lista inicial de colaboradores"):
-        seed_colaboradores_iniciais(turno_default="1°")
-        st.success("Seed aplicado (somente adiciona quem não existe).")
+# Painel Admin apenas para admin
+if is_admin():
+    with st.sidebar.expander("⚙️ Admin"):
+        coladm1, coladm2 = st.columns([1,1])
+        if coladm1.button("Carregar lista inicial de colaboradores"):
+            seed_colaboradores_iniciais(turno_default="1°")
+            st.success("Seed aplicado (somente adiciona quem não existe).")
 
-    up = st.file_uploader("Importar turnos (xlsx/csv)", type=["xlsx", "xls", "csv"], key="up_turnos")
-    setor_default = st.selectbox("Se o CSV não tiver coluna SETOR, aplicar a:",
-                                 ["(obrigatório se CSV sem SETOR)"] + OPCOES_SETORES, index=0)
-    if st.button("Aplicar turnos do arquivo"):
-        if up is None:
-            st.warning("Selecione um arquivo .xlsx ou .csv")
-        else:
-            try:
-                n = importar_turnos_de_arquivo(up, setor_padrao=None if setor_default.startswith("(") else setor_default)
-                st.success(f"Turnos aplicados/atualizados para {n} colaboradores.")
-            except Exception as e:
-                st.error(f"Erro ao importar: {e}")
+        up = st.file_uploader("Importar turnos (xlsx/csv)", type=["xlsx", "xls", "csv"], key="up_turnos")
+        setor_default = st.selectbox("Se o CSV não tiver coluna SETOR, aplicar a:",
+                                     ["(obrigatório se CSV sem SETOR)"] + OPCOES_SETORES, index=0)
+        if st.button("Aplicar turnos do arquivo"):
+            if up is None:
+                st.warning("Selecione um arquivo .xlsx ou .csv")
+            else:
+                try:
+                    n = importar_turnos_de_arquivo(up, setor_padrao=None if setor_default.startswith("(") else setor_default)
+                    st.success(f"Turnos aplicados/atualizados para {n} colaboradores.")
+                except Exception as e:
+                    st.error(f"Erro ao importar: {e}")
 
+# Roteamento
 if escolha == "Lançamento diário":
     pagina_lancamento_diario()
 elif escolha == "Colaboradores":
+    if not is_admin():
+        st.error("Acesso restrito aos administradores.")
+        st.stop()
     pagina_colaboradores()
 else:
     pagina_relatorios_globais()
