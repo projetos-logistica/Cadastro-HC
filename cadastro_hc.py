@@ -928,8 +928,17 @@ def pagina_lancamento_diario():
         setor = st.selectbox("Setor", OPCOES_SETORES, index=0, key="lan_setor")
     with colB:
         turno_sel = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0, key="lan_turno")
+    
+    
     with colC:
-        data_dia = st.date_input("Data do preenchimento", value=date.today(), key="lan_data")
+        data_dia = st.date_input(
+        "Data do preenchimento",
+        value=date.today(),
+        format="DD/MM/YYYY",   # <<< aqui!
+        key="lan_data",
+    )
+
+         
     with colD:
         nome_preenchedor = st.text_input("Seu nome (opcional)", key="lan_nome")
 
