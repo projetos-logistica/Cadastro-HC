@@ -73,6 +73,20 @@ def is_admin() -> bool:
         admins_extra = set()
     return email in (ADMIN_EMAILS | admins_extra)
 
+# --- Helper: extrai nome do e-mail -------------------------------------------
+def display_name_from_email(email: str) -> str:
+    # pega a parte antes do @ e transforma em "Nome Sobrenome" (title case)
+    local = (email or "").split("@")[0]
+    if not local:
+        return ""
+    # trata separadores comuns
+    parts = (
+        local.replace("_", ".").replace("-", ".").split(".")
+    )
+    parts = [p for p in parts if p]
+    return " ".join(w.capitalize() for w in parts)
+# -----------------------------------------------------------------------------
+
 def show_login():
     st.markdown("<h2 style='text-align:center;'>Login</h2>", unsafe_allow_html=True)
     with st.form("login_email_senha"):
@@ -923,29 +937,60 @@ def importar_turnos_de_arquivo(arquivo, setor_padrao: str | None = None) -> int:
 # ------------------------------
 def pagina_lancamento_diario():
     st.markdown("### Lançamento diário de presença (por setor)")
-    colA, colB, colC, colD = st.columns([1,1,1,1])
+
+    # agora uso 5 colunas: Setor | Turno | Data | Filtro | Nome
+    colA, colB, colC, colD, colE = st.columns([1, 1, 1, 1, 2])
+
     with colA:
         setor = st.selectbox("Setor", OPCOES_SETORES, index=0, key="lan_setor")
+
     with colB:
         turno_sel = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0, key="lan_turno")
-    
-    
+
     with colC:
         data_dia = st.date_input(
-        "Data do preenchimento",
-        value=date.today(),
-        format="DD/MM/YYYY",   # <<< aqui!
-        key="lan_data",
-    )
+            "Data do preenchimento",
+            value=date.today(),
+            format="DD/MM/YYYY",
+            key="lan_data",
+        )
 
-         
+    # >>> NOVO FILTRO AQUI <<<
     with colD:
-        nome_preenchedor = st.text_input("Seu nome (opcional)", key="lan_nome")
+        filtro_st = st.multiselect(
+            "Filtro",
+            options=["SOMA", "TERCEIROS"],
+            default=["SOMA", "TERCEIROS"],  # ambos selecionados = mostra todos
+            key="lan_filtro_st"
+        )
 
+    with colE:
+        # preenche automaticamente com o nome derivado do e-mail logado
+        default_name = display_name_from_email(st.session_state.get("user_email", ""))
+        if default_name:
+            st.text_input("Seu nome", value=default_name, key="lan_nome", disabled=True)
+            nome_preenchedor = default_name
+        else:
+            nome_preenchedor = st.text_input("Seu nome (opcional)", key="lan_nome")
+
+    # ------ busca colaboradores (Setor/Turno) ------
     if turno_sel == "Todos":
         df_cols = listar_colaboradores_por_setor(setor, somente_ativos=True)
     else:
         df_cols = listar_colaboradores_setor_turno(setor, turno_sel, somente_ativos=True)
+
+    # ------ aplica o filtro SOMA / TERCEIROS ------
+    # "TERCEIROS" = nome termina com "- terceiro" (case-insensitive, com ou sem espaços)
+    mask_terceiro = df_cols["nome"].str.contains(r"-\s*terceiro\s*$", case=False, na=False)
+
+    escolha = set(filtro_st)
+    if escolha == {"SOMA"}:
+        df_cols = df_cols[~mask_terceiro]
+    elif escolha == {"TERCEIROS"}:
+        df_cols = df_cols[mask_terceiro]
+    else:
+        # ambos selecionados (ou nenhum) -> não filtra
+        pass
 
     if len(df_cols) == 0:
         st.warning("Nenhum colaborador cadastrado para este filtro.")
@@ -953,7 +998,9 @@ def pagina_lancamento_diario():
 
     iso = data_dia.isoformat()
     base = pd.DataFrame(
-        {"Colaborador": df_cols["nome"].tolist(), "Setor": df_cols["setor"].tolist(), iso: ""},
+        {"Colaborador": df_cols["nome"].tolist(),
+         "Setor": df_cols["setor"].tolist(),
+         iso: ""},
         dtype="object"
     )
 
@@ -972,7 +1019,8 @@ def pagina_lancamento_diario():
     }
 
     st.markdown("#### Tabela do dia")
-    editor_key = f"editor_dia_{iso}_{setor}_{turno_sel}"
+    # incluir o filtro na chave do editor evita cache estranho ao alternar
+    editor_key = f"editor_dia_{iso}_{setor}_{turno_sel}_{'-'.join(sorted(filtro_st) or ['TODOS'])}"
     editado = st.data_editor(
         base,
         use_container_width=True,
@@ -993,8 +1041,7 @@ def pagina_lancamento_diario():
             leader_nome=nome_preenchedor or "",
         )
         st.success("Registros salvos/atualizados!")
-        # limpa o estado do editor para não “grudar” o valor antigo e recarrega a UI
-        st.session_state.pop(editor_key, None)
+        st.session_state.pop(editor_key, None)  
         st.rerun()
 
     with st.expander("Exportar CSV do dia", expanded=False):
@@ -1018,6 +1065,7 @@ def pagina_lancamento_diario():
                 file_name=f"presencas_{setor}_{iso}.csv",
                 mime="text/csv",
             )
+
 
 # ------------------------------
 # Página de Configuração do DB
