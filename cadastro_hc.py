@@ -45,25 +45,34 @@ def normaliza_turno(t: str) -> str:
 
 # --- LOGIN por e-mail/senha ---------------------------------------------------
 # Quem pode logar (email -> senha)
-DEFAULT_USERS = {
-    "projetos.logistica@somagrupo.com.br": "projetos123",   # admin
-    "lucas.silverio@somagrupo.com.br": "lucas123",          # usuário comum (sem admin)
+# --- LOGIN por e-mail (sem senha) --------------------------------------------
+# Quem pode logar (lista de e-mails permitidos)
+ALLOWED_EMAILS_DEFAULT = {
+    "projetos.logistica@somagrupo.com.br",  # admin
+    "lucas.silverio@somagrupo.com.br",      # usuário comum (sem admin)
 }
 
-# Quem é admin
+# Quem é admin (pode complementar via st.secrets["admins"])
 ADMIN_EMAILS = {
     "projetos.logistica@somagrupo.com.br",
 }
 
-def _valid_users():
-    users = {k.lower(): v for k, v in DEFAULT_USERS.items()}
+def _allowed_emails():
+    """
+    Constrói o conjunto de e-mails autorizados:
+    - os do código (ALLOWED_EMAILS_DEFAULT)
+    - + os do st.secrets["users"], que podem ser dict (chaves = e-mails) ou list
+    """
+    emails = {e.lower() for e in ALLOWED_EMAILS_DEFAULT}
     try:
         secret_users = st.secrets.get("users", {})
         if isinstance(secret_users, dict):
-            users.update({k.lower(): v for k, v in secret_users.items()})
+            emails |= {k.lower() for k in secret_users.keys()}
+        elif isinstance(secret_users, (list, set, tuple)):
+            emails |= {str(e).lower() for e in secret_users}
     except Exception:
         pass
-    return users
+    return emails
 
 def is_admin() -> bool:
     email = (st.session_state.get("user_email") or "").lower()
@@ -79,32 +88,29 @@ def display_name_from_email(email: str) -> str:
     local = (email or "").split("@")[0]
     if not local:
         return ""
-    # trata separadores comuns
-    parts = (
-        local.replace("_", ".").replace("-", ".").split(".")
-    )
+    parts = local.replace("_", ".").replace("-", ".").split(".")
     parts = [p for p in parts if p]
     return " ".join(w.capitalize() for w in parts)
-# -----------------------------------------------------------------------------
 
 def show_login():
     st.markdown("<h2 style='text-align:center;'>Login</h2>", unsafe_allow_html=True)
-    with st.form("login_email_senha"):
+    with st.form("login_somente_email"):
         email = st.text_input("E-mail").strip().lower()
-        senha = st.text_input("Senha", type="password")
         ok = st.form_submit_button("Entrar")
 
     if ok:
-        users = _valid_users()
-        if email in users and senha == users[email]:
+        allowed = _allowed_emails()
+        if email in allowed:
             st.session_state["auth"] = True
             st.session_state["user_email"] = email
             st.success("Acesso liberado!")
             st.rerun()
         else:
-            st.error("E-mail ou senha inválidos.")
+            st.error("E-mail não autorizado.")
 
     st.stop()
+# ----------------------------------------------------------------------------- 
+
 # -------------------------------------------------------------------------------
 
 # ------------------------------
@@ -206,6 +212,13 @@ def listar_periodos(n: int = 12) -> List[Tuple[str, date, date]]:
 def datas_do_periodo(inicio: date, fim: date) -> List[date]:
     n = (fim - inicio).days + 1
     return [inicio + timedelta(days=i) for i in range(n)]
+
+def data_minima_preenchimento(hoje: date | None = None) -> date:
+    """Data mínima liberada = início do período (16..15) que contém 'hoje'."""
+    h = hoje or date.today()
+    inicio, _ = periodo_por_data(h)
+    return inicio
+
 
 # ------------------------------
 # Camada de dados
@@ -948,12 +961,15 @@ def pagina_lancamento_diario():
         turno_sel = st.selectbox("Turno", ["Todos"] + OPCOES_TURNOS, index=0, key="lan_turno")
 
     with colC:
+        min_permitida = data_minima_preenchimento()
         data_dia = st.date_input(
-            "Data do preenchimento",
-            value=date.today(),
-            format="DD/MM/YYYY",
-            key="lan_data",
-        )
+        "Data do preenchimento",
+        value=max(date.today(), min_permitida),  # garante valor inicial válido
+        min_value=min_permitida,                 # <-- trava o passado antes do início do período
+        format="DD/MM/YYYY",
+        key="lan_data",
+    )
+
 
     # >>> NOVO FILTRO AQUI <<<
     with colD:
