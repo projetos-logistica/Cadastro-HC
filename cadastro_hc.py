@@ -339,28 +339,26 @@ def carregar_presencas(colab_ids: List[int], inicio: date, fim: date) -> Dict[Tu
 
 def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
                      inicio: date, fim: date, setor: str, turno: str, leader_nome: str):
-    # derrete apenas as colunas de DATA (ignora "Colaborador" e "Setor")
-    date_cols = [c for c in df_editado.columns if c not in ("Colaborador", "Setor")]
-    melt = df_editado.melt(id_vars=["Colaborador", "Setor"],
-                           value_vars=date_cols,
-                           var_name="data",
-                           value_name="status")
-    melt["data_iso"] = pd.to_datetime(melt["data"]).dt.date   # -> datetime.date
+    # derrete apenas as colunas de DATA (ignora "Colaborador", "Setor" e "Turno")
+    date_cols = [c for c in df_editado.columns if c not in ("Colaborador", "Setor", "Turno")]
+    melt = df_editado.melt(
+        id_vars=["Colaborador", "Setor"],          # pode manter sem "Turno"
+        value_vars=date_cols,
+        var_name="data",
+        value_name="status"
+    )
+    melt["data_iso"] = pd.to_datetime(melt["data"]).dt.date
     melt["colaborador_id"] = melt["Colaborador"].map(mapa_id_por_nome)
     melt = melt.dropna(subset=["colaborador_id"])
 
     cn = get_conn(); cur = cn.cursor()
-
     for _, r in melt.iterrows():
         status = (r["status"] or "").strip()
         cid = int(r["colaborador_id"])
-        dte = r["data_iso"]  # datetime.date
+        dte = r["data_iso"]
 
         if status == "":
-            cur.execute(
-                "DELETE FROM dbo.presencas WHERE colaborador_id=? AND data=?",
-                (cid, dte),
-            )
+            cur.execute("DELETE FROM dbo.presencas WHERE colaborador_id=? AND data=?", (cid, dte))
         else:
             cur.execute("""
             MERGE dbo.presencas AS T
@@ -372,9 +370,9 @@ def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
                 INSERT (colaborador_id, data, status, setor, turno, leader_nome, created_at, updated_at)
                 VALUES (S.colaborador_id, S.data, ?, ?, ?, ?, SYSDATETIME(), SYSDATETIME());
             """, (cid, dte, status, setor, turno, leader_nome, status, setor, turno, leader_nome))
-
     cn.commit()
     cur.close(); cn.close()
+
 
 # ------------------------------
 # UI Helpers
@@ -391,12 +389,13 @@ def aplicar_status_existentes(base: pd.DataFrame,
                               mapa_id_por_nome: Dict[str, int]):
     for nome, cid in mapa_id_por_nome.items():
         for col in base.columns:
-            if col in ("Colaborador", "Setor"):
+            if col in ("Colaborador", "Setor", "Turno"):   # <— acrescentado "Turno"
                 continue
             key = (cid, col)
             if key in presencas:
                 base.loc[base["Colaborador"] == nome, col] = presencas[key]
     return base
+
 
 def coluna_config_datas(inicio: date, fim: date) -> Dict[str, st.column_config.Column]:
     cfg = {}
@@ -1014,25 +1013,31 @@ def pagina_lancamento_diario():
 
     iso = data_dia.isoformat()
     base = pd.DataFrame(
-        {"Colaborador": df_cols["nome"].tolist(),
-         "Setor": df_cols["setor"].tolist(),
-         iso: ""},
+        {
+        "Colaborador": df_cols["nome"].tolist(),
+        "Setor": df_cols["setor"].tolist(),
+        "Turno": df_cols["turno"].tolist(),   # <— NOVO
+        iso: ""
+        },
         dtype="object"
     )
+
 
     pres = carregar_presencas(df_cols["id"].tolist(), data_dia, data_dia)
     mapa = dict(zip(df_cols["nome"], df_cols["id"]))
     base = aplicar_status_existentes(base, pres, mapa)
 
     cfg = {
-        "Colaborador": st.column_config.TextColumn("Colaborador", disabled=True),
-        "Setor": st.column_config.TextColumn("Setor", disabled=True),
-        iso: st.column_config.SelectboxColumn(
-            label=data_dia.strftime("%d/%m"),
-            options=STATUS_OPCOES,
-            required=False,
-        ),
-    }
+    "Colaborador": st.column_config.TextColumn("Colaborador", disabled=True),
+    "Setor": st.column_config.TextColumn("Setor", disabled=True),
+    "Turno": st.column_config.TextColumn("Turno", disabled=True),   # <— NOVO
+    iso: st.column_config.SelectboxColumn(
+        label=data_dia.strftime("%d/%m"),
+        options=STATUS_OPCOES,
+        required=False,
+    ),
+}
+
 
     st.markdown("#### Tabela do dia")
     # incluir o filtro na chave do editor evita cache estranho ao alternar
