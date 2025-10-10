@@ -21,7 +21,10 @@ from DB import get_conn, test_connection, get_config
 # ------------------------------
 st.set_page_config(page_title="Presenças - Logística", layout="wide")
 
-STATUS_OPCOES = ["", "PRESENTE", "BH", "ATRASADO", "FALTA"]
+STATUS_OPCOES = ["", "PRESENTE", "BH", "ATRASADO", "FALTA", "FÉRIAS", 
+                 "ATESTADO", "AFASTADO", "ANIVERSÁRIO", "SAIDA ANTC", 
+                 "SIN ECOM", "SIN DIST", "SIN AVI", "SIN REC", "SIN EXP",
+                 "SIN ALM", "SIN TEC", "DSR", "CURSO", "DESLIGADO"]
 
 OPCOES_SETORES = [
     "Aviamento",
@@ -1026,6 +1029,7 @@ def pagina_lancamento_diario():
     pres = carregar_presencas(df_cols["id"].tolist(), data_dia, data_dia)
     mapa = dict(zip(df_cols["nome"], df_cols["id"]))
     base = aplicar_status_existentes(base, pres, mapa)
+    
 
     cfg = {
     "Colaborador": st.column_config.TextColumn("Colaborador", disabled=True),
