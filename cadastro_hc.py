@@ -38,6 +38,17 @@ OPCOES_SETORES = [
 ]
 OPCOES_TURNOS = ["1°", "2°", "3°", "ÚNICO", "INTERMEDIARIO"]
 
+# quais status "SIN" redirecionam o setor do dia
+SIN_TO_SETOR = {
+    "SIN AVI":  "Aviamento",
+    "SIN REC":  "Recebimento",
+    "SIN EXP":  "Expedição",
+    "SIN ALM":  "Almoxarifado",
+    "SIN TEC":  "Tecido",
+    "SIN ECOM": "E-commerce",
+    "SIN DIST": "Distribuição",
+}
+
 def normaliza_turno(t: str) -> str:
     t = (t or "").strip().upper().replace("º", "°")
     if t == "UNICO":
@@ -342,39 +353,64 @@ def carregar_presencas(colab_ids: List[int], inicio: date, fim: date) -> Dict[Tu
 
 def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
                      inicio: date, fim: date, setor: str, turno: str, leader_nome: str):
-    # derrete apenas as colunas de DATA (ignora "Colaborador", "Setor" e "Turno")
+    """
+    Salva as presenças do período. Se o status for um dos "SIN_*",
+    o setor gravado para aquele dia é sobrescrito pelo setor do SIN.
+    O turno gravado, se existir a coluna 'Turno' na grade, vem da própria linha;
+    caso contrário, usa o turno selecionado no topo (parâmetro 'turno').
+    """
+    # derrete somente as colunas de data
     date_cols = [c for c in df_editado.columns if c not in ("Colaborador", "Setor", "Turno")]
     melt = df_editado.melt(
-        id_vars=["Colaborador", "Setor"],          # pode manter sem "Turno"
+        id_vars=[c for c in ("Colaborador", "Setor", "Turno") if c in df_editado.columns],
         value_vars=date_cols,
         var_name="data",
         value_name="status"
     )
+
     melt["data_iso"] = pd.to_datetime(melt["data"]).dt.date
     melt["colaborador_id"] = melt["Colaborador"].map(mapa_id_por_nome)
     melt = melt.dropna(subset=["colaborador_id"])
 
     cn = get_conn(); cur = cn.cursor()
+
     for _, r in melt.iterrows():
         status = (r["status"] or "").strip()
-        cid = int(r["colaborador_id"])
-        dte = r["data_iso"]
+        cid    = int(r["colaborador_id"])
+        dte    = r["data_iso"]
+
+        # setor base: o da linha, se existir; senão o da página
+        setor_base = r.get("Setor", setor)
+        # se for status SIN, sobrescreve o setor do dia
+        setor_para_gravar = SIN_TO_SETOR.get(status, setor_base)
+
+        # turno base: o da linha, se existir; senão o da página
+        turno_para_gravar = r.get("Turno", turno)
 
         if status == "":
-            cur.execute("DELETE FROM dbo.presencas WHERE colaborador_id=? AND data=?", (cid, dte))
+            cur.execute(
+                "DELETE FROM dbo.presencas WHERE colaborador_id=? AND data=?",
+                (cid, dte),
+            )
         else:
             cur.execute("""
-            MERGE dbo.presencas AS T
-            USING (VALUES (?, ?)) AS S(colaborador_id, data)
-                 ON T.colaborador_id = S.colaborador_id AND T.data = S.data
-            WHEN MATCHED THEN
-                UPDATE SET status=?, setor=?, turno=?, leader_nome=?, updated_at=SYSDATETIME()
-            WHEN NOT MATCHED THEN
-                INSERT (colaborador_id, data, status, setor, turno, leader_nome, created_at, updated_at)
-                VALUES (S.colaborador_id, S.data, ?, ?, ?, ?, SYSDATETIME(), SYSDATETIME());
-            """, (cid, dte, status, setor, turno, leader_nome, status, setor, turno, leader_nome))
+                MERGE dbo.presencas AS T
+                USING (VALUES (?, ?)) AS S(colaborador_id, data)
+                     ON T.colaborador_id = S.colaborador_id AND T.data = S.data
+                WHEN MATCHED THEN
+                    UPDATE SET status=?, setor=?, turno=?, leader_nome=?, updated_at=SYSDATETIME()
+                WHEN NOT MATCHED THEN
+                    INSERT (colaborador_id, data, status, setor, turno, leader_nome, created_at, updated_at)
+                    VALUES (S.colaborador_id, S.data, ?, ?, ?, ?, SYSDATETIME(), SYSDATETIME());
+            """, (
+                cid, dte,
+                status, setor_para_gravar, turno_para_gravar, leader_nome,   # UPDATE
+                status, setor_para_gravar, turno_para_gravar, leader_nome    # INSERT
+            ))
+
     cn.commit()
     cur.close(); cn.close()
+
 
 
 # ------------------------------
