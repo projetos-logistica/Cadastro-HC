@@ -411,6 +411,49 @@ def salvar_presencas(df_editado: pd.DataFrame, mapa_id_por_nome: Dict[str, int],
     cn.commit()
     cur.close(); cn.close()
 
+def aplicar_status_em_periodo(
+    nomes_colaboradores: List[str],
+    df_cols: pd.DataFrame,
+    mapa_id_por_nome: Dict[str, int],
+    inicio: date,
+    fim: date,
+    status: str,
+    setor: str,
+    turno_selecao: str,
+    leader_nome: str,
+):
+  
+    if not nomes_colaboradores:
+        return
+
+    # turnos por colaborador (do df de colaboradores carregado na página)
+    turnos_por_nome = df_cols.set_index("nome")["turno"].to_dict()
+
+    # base com colunas fixas
+    dias = datas_do_periodo(inicio, fim)
+    df = pd.DataFrame({
+        "Colaborador": nomes_colaboradores,
+        "Setor": [setor] * len(nomes_colaboradores),
+        "Turno": [turnos_por_nome.get(n, turno_selecao) for n in nomes_colaboradores],
+    })
+
+    # cria uma coluna por dia do período com o status escolhido
+    for d in dias:
+        df[d.isoformat()] = status
+
+    # grava tudo de uma vez (essa função já faz o MERGE/UPDATE)
+    salvar_presencas(
+        df_editado=df,
+        mapa_id_por_nome=mapa_id_por_nome,
+        inicio=inicio,
+        fim=fim,
+        setor=setor,
+        turno=turno_selecao,
+        leader_nome=leader_nome or "",
+    )
+
+
+
 
 
 # ------------------------------
@@ -1090,6 +1133,58 @@ def pagina_lancamento_diario():
         column_config=cfg,
         key=editor_key,
     )
+
+                # --- FÉRIAS em período (aparece só quando há alguém marcado como FÉRIAS no dia) ---
+    colaboradores_marcados_ferias = editado.loc[editado[iso] == "FÉRIAS", "Colaborador"].tolist()
+    if colaboradores_marcados_ferias:
+        with st.expander("Aplicar FÉRIAS para um período", expanded=True):
+            st.caption(
+                "Marcados como FÉRIAS em "
+                + data_dia.strftime("%d/%m/%Y")
+                + ": "
+                + ", ".join(colaboradores_marcados_ferias)
+            )
+
+            ini_periodo_atual, fim_periodo_atual = periodo_por_data(data_dia)
+
+            colf1, colf2 = st.columns(2)
+            with colf1:
+                ferias_ini = st.date_input(
+                    "Início das férias",
+                    value=data_dia,
+                    min_value=data_minima_preenchimento(),
+                    format="DD/MM/YYYY",
+                    key=f"ferias_ini_{editor_key}",
+                )
+            with colf2:
+                ferias_fim = st.date_input(
+                    "Fim das férias",
+                    value=fim_periodo_atual,
+                    min_value=ferias_ini,
+                    format="DD/MM/YYYY",
+                    key=f"ferias_fim_{editor_key}",
+                )
+
+            if st.button(
+                "Aplicar FÉRIAS no período para os colaboradores acima",
+                type="primary",
+                key=f"btn_aplicar_ferias_{editor_key}",
+            ):
+                aplicar_status_em_periodo(
+                    nomes_colaboradores=colaboradores_marcados_ferias,
+                    df_cols=df_cols,  # dataframe original de colaboradores carregado pela página
+                    mapa_id_por_nome=mapa,
+                    inicio=ferias_ini,
+                    fim=ferias_fim,
+                    status="FÉRIAS",
+                    setor=setor,
+                    turno_selecao=(turno_sel if turno_sel != "Todos" else "-"),
+                    leader_nome=nome_preenchedor,
+                )
+                st.success("FÉRIAS aplicadas no período selecionado!")
+                st.rerun()
+
+
 
     if st.button("Salvar dia"):
         salvar_presencas(
